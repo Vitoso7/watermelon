@@ -10,6 +10,8 @@ use std::{env, process::Command};
 // Crate to calculate timecode
 use vtc::{rates, Timecode};
 
+// The content needs to be the last black frame before the material ~ the last material frame;
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     args.get(1).unwrap_or_else(|| panic!("missing argument"));
@@ -23,35 +25,70 @@ fn run_ffmpeg_cmd(args: &Vec<String>) {
     let mut ffmpeg_cmd = Command::new("ffmpeg")
         .args(["-hide_banner", "-i"])
         .arg(file_input_arg)
-        .args(["-vf", "blackdetect,blackframe", "-f", "null", "-"])
+        .args(["-an", "-vf", "blackdetect,blackframe", "-f", "null", "-"])
         .stderr(Stdio::piped())
         .spawn()
-        .expect("error running ffprobe command");
+        .expect("error running ffmpeg command");
 
     let stderr = ffmpeg_cmd.stderr.take().unwrap();
     let stderr_reader = std::io::BufReader::new(stderr);
 
-    let mut prev_line = String::new();
+    let mut blackdetects: Vec<String> = vec![];
     for line in stderr_reader.lines() {
         let buf_line = line.expect("Failed to read line from stdout");
         if buf_line.contains("blackdetect") {
-            ffmpeg_cmd.kill().expect("failed to kill ffmpeg process");
-
-            match extract_filter_prefix(&mut prev_line) {
-                Ok((f, _)) => match get_filter_value(f, "frame") {
-                    Some(v) => {
-                        let timecode = get_timecode(v as u32);
-                        println!("{}", timecode)
-                    }
-                    None => panic!("nothing found"),
-                },
-                Err(_) => panic!("Error removing prefix"),
-            }
-
-            get_timecode(210);
+            blackdetects.push(buf_line);
         }
-        prev_line = buf_line;
     }
+
+    let first_blackdetect = blackdetects.first_mut();
+
+    // black_end is not a black frame
+    match first_blackdetect {
+        Some(b) => match extract_filter_prefix(b) {
+            Ok((f, _)) => match get_filter_value(f, "black_end") {
+                Some(v) => {
+                    let frame = get_frame_per_timestamp(v);
+                    let timecode = get_timecode(frame - 1);
+                    println!("SOM (Start Of Material) Timecode {}", timecode);
+                }
+                None => panic!("nothing found"),
+            },
+            Err(_) => {
+                panic!("filter value not found");
+            }
+        },
+        None => {
+            panic!("no black detect found");
+        }
+    }
+
+    let last_blackdetect = blackdetects.last_mut();
+
+    // black start is a black_frame
+    match last_blackdetect {
+        Some(b) => match extract_filter_prefix(b) {
+            Ok((f, _)) => match get_filter_value(f, "black_start") {
+                Some(v) => {
+                    let frame = get_frame_per_timestamp(v);
+                    let timecode = get_timecode(frame - 1);
+                    println!("EOM (End of Material) Timecode: {}", timecode);
+                }
+                None => panic!("nothing found"),
+            },
+            Err(_) => {
+                panic!("filter value not found");
+            }
+        },
+        None => {
+            panic!("no black detect found");
+        }
+    }
+}
+
+fn get_frame_per_timestamp(timestamp: f32) -> u64 {
+    let frame = (timestamp * 29.97).round() as u64;
+    return frame;
 }
 
 fn get_filter_value(raw_str: &str, value: &str) -> Option<f32> {
@@ -73,7 +110,7 @@ fn extract_filter_prefix(input: &mut String) -> IResult<&str, ()> {
     return Ok((parsed_value, ()));
 }
 
-fn get_timecode(frame: u32) -> String {
+fn get_timecode(frame: u64) -> String {
     return Timecode::with_frames(frame, rates::F29_97_DF)
         .unwrap()
         .timecode();
@@ -81,7 +118,7 @@ fn get_timecode(frame: u32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::{extract_filter_prefix, get_filter_value, get_timecode};
+    use crate::{extract_filter_prefix, get_filter_value, get_frame_per_timestamp, get_timecode};
 
     #[test]
     fn get_framerate_vtc_lib_frame_209() {
@@ -146,5 +183,35 @@ mod tests {
             "nothing",
         );
         assert_eq!(value, None);
+    }
+
+    #[test]
+    fn get_frame_per_timestamp_6_97363() {
+        let value = get_frame_per_timestamp(6.97363);
+        assert_eq!(value, 209);
+    }
+
+    #[test]
+    fn get_frame_per_timestamp_7_007() {
+        let value = get_frame_per_timestamp(7.007);
+        assert_eq!(value, 210);
+    }
+
+    #[test]
+    fn get_frame_per_timestamp_22_0554() {
+        let value = get_frame_per_timestamp(22.0554);
+        assert_eq!(value, 661);
+    }
+
+    #[test]
+    fn get_frame_per_timestamp_24_024000() {
+        let value = get_frame_per_timestamp(24.024000);
+        assert_eq!(value, 720);
+    }
+
+    #[test]
+    fn get_frame_per_timestamp_37_037() {
+        let value = get_frame_per_timestamp(37.037);
+        assert_eq!(value, 1110);
     }
 }
