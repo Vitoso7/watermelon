@@ -13,6 +13,8 @@ use std::{env, process::Command};
 use vtc::{rates, Timecode};
 
 // The content needs to be the last black frame before the material ~ the last material frame;
+// So the frame found by black_start to get EOM must be subtract by 1 because black_start is a black_frame and i does not belong to the end of material
+// the frame found by black_end is a content frame and also must be subtract by one beacause the SOM starts with a blackframe
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -28,7 +30,7 @@ fn run_ffmpeg_cmd(args: &Vec<String>) {
     let mut ffmpeg_cmd = Command::new("ffmpeg")
         .args(["-hide_banner", "-loglevel", "debug", "-i"])
         .arg(file_input_arg)
-        .args(["-an", "-vf", "blackdetect", "-f", "null", "-"])
+        .args(["-an", "-vf", "blackdetect=d=1", "-f", "null", "-"])
         .stderr(Stdio::piped())
         .spawn()
         .expect("error running ffmpeg command, maybe bad path for a video");

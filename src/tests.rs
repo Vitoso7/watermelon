@@ -96,4 +96,16 @@ mod tests {
         let value = get_frame_per_timestamp(37.037);
         assert_eq!(value, 1110);
     }
+
+    #[test]
+    fn get_frame_per_timestamp_21_9553() {
+        let value = get_frame_per_timestamp(21.9553);
+        assert_eq!(value, 658);
+    }
+
+    #[test]
+    fn get_frame_per_timestamp_6_94027() {
+        let value = get_frame_per_timestamp(6.94027);
+        assert_eq!(value, 208);
+    }
 }
