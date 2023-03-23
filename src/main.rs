@@ -16,7 +16,8 @@ use vtc::{rates, Timecode};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    args.get(1).unwrap_or_else(|| panic!("missing argument"));
+    args.get(1)
+        .unwrap_or_else(|| panic!("missing video path argument"));
 
     run_ffmpeg_cmd(&args)
 }
@@ -30,7 +31,7 @@ fn run_ffmpeg_cmd(args: &Vec<String>) {
         .args(["-an", "-vf", "blackdetect", "-f", "null", "-"])
         .stderr(Stdio::piped())
         .spawn()
-        .expect("error running ffmpeg command");
+        .expect("error running ffmpeg command, maybe bad path for a video");
 
     let stderr = ffmpeg_cmd.stderr.take().unwrap();
     let stderr_reader = std::io::BufReader::new(stderr);
