@@ -35,15 +35,15 @@ fn run_ffmpeg_cmd(args: &Vec<String>) {
     let stderr = ffmpeg_cmd.stderr.take().unwrap();
     let stderr_reader = std::io::BufReader::new(stderr);
 
-    let mut blackdetects: Vec<String> = vec![];
+    let mut blackdetect_list: Vec<String> = vec![];
     for line in stderr_reader.lines() {
         let buf_line = line.expect("Failed to read line from stdout");
-        if buf_line.contains("black_start") || buf_line.contains("black_end") {
-            blackdetects.push(buf_line);
+        if buf_line.contains("black_start") && buf_line.contains("black_end") {
+            blackdetect_list.push(buf_line);
         }
     }
 
-    let first_blackdetect = blackdetects.first_mut();
+    let first_blackdetect = blackdetect_list.first_mut();
 
     match first_blackdetect {
         Some(b) => match extract_filter_prefix(b) {
@@ -53,18 +53,18 @@ fn run_ffmpeg_cmd(args: &Vec<String>) {
                     let timecode = get_timecode(frame - 1);
                     println!("SOM (Start Of Material) Timecode {}", timecode);
                 }
-                None => panic!("nothing found"),
+                None => panic!("black_start value for the last black detection not found"),
             },
-            Err(_) => {
-                panic!("filter value not found");
+            Err(e) => {
+                panic!("error parsing the first black detection filter {}", e);
             }
         },
         None => {
-            panic!("no black detect found");
+            panic!("no black detect found at the start of the video");
         }
     }
 
-    let last_blackdetect = blackdetects.last_mut();
+    let last_blackdetect = blackdetect_list.last_mut();
 
     match last_blackdetect {
         Some(b) => match extract_filter_prefix(b) {
@@ -74,14 +74,14 @@ fn run_ffmpeg_cmd(args: &Vec<String>) {
                     let timecode = get_timecode(frame - 1);
                     println!("EOM (End of Material) Timecode: {}", timecode);
                 }
-                None => panic!("nothing found"),
+                None => panic!("black_start value for the last black detection not found"),
             },
-            Err(_) => {
-                panic!("filter value not found");
+            Err(e) => {
+                panic!("error parsing the last black detection filter: {}", e);
             }
         },
         None => {
-            panic!("no black detect found");
+            panic!("no black detect found at the end of the video");
         }
     }
 }
