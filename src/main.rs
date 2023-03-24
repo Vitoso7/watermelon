@@ -13,8 +13,10 @@ use std::{env, process::Command};
 use vtc::{rates, Timecode};
 
 // The content needs to be the last black frame before the material ~ the last material frame;
-// So the frame found by black_start to get EOM must be subtract by 1 because black_start is a black_frame and i does not belong to the end of material
-// the frame found by black_end is a content frame and also must be subtract by one beacause the SOM starts with a blackframe
+// the frame found by black_end is a content frame and also must be subtract by 1 because the SOM must start with a blackframe
+// the frame found by black_start to get EOM must be subtract by 1 because black_start is a black_frame and it does not belong to the end of material
+
+// Start of Material and End of Material
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -28,25 +30,54 @@ fn run_ffmpeg_cmd(args: &Vec<String>) {
     let file_input_arg = &args[1];
 
     let mut ffmpeg_cmd = Command::new("ffmpeg")
-        .args(["-hide_banner", "-loglevel", "debug", "-i"])
+        .args(["-hide_banner", "-i"])
         .arg(file_input_arg)
-        .args(["-an", "-vf", "blackdetect=d=1", "-f", "null", "-"])
+        .args([
+            "-an",
+            "-vf",
+            "blackdetect=d=1,blackframe",
+            "-f",
+            "null",
+            "-",
+        ])
         .stderr(Stdio::piped())
         .spawn()
         .expect("error running ffmpeg command, maybe bad path for a video");
 
-    let stderr = ffmpeg_cmd.stderr.take().unwrap();
+    let stderr = ffmpeg_cmd
+        .stderr
+        .take()
+        .expect("error getting the stderr output");
     let stderr_reader = std::io::BufReader::new(stderr);
 
     let mut blackdetect_list: Vec<String> = vec![];
+    let mut raw_video_duration: Option<String> = None;
+    let mut found_duration = false;
     for line in stderr_reader.lines() {
         let buf_line = line.expect("Failed to read line from stdout");
-        if buf_line.contains("black_start") && buf_line.contains("black_end") {
+        if buf_line.contains("Duration") {
+            raw_video_duration = Some(buf_line);
+            found_duration = true;
+        } else if found_duration && buf_line.contains("black_start") {
             blackdetect_list.push(buf_line);
         }
     }
 
-    let first_blackdetect = blackdetect_list.first_mut();
+    match raw_video_duration {
+        Some(d) => {
+            get_som_eom(&mut blackdetect_list, d);
+        }
+        None => {
+            panic!("Video duration not found")
+        }
+    }
+}
+
+fn get_som_eom(blackdetects: &mut Vec<String>, raw_video_duration: String) {
+    println!("Number of blackdetects {}", blackdetects.len());
+    println!("Video duration {}", raw_video_duration);
+
+    let first_blackdetect = blackdetects.first_mut();
 
     match first_blackdetect {
         Some(b) => match extract_filter_prefix(b) {
@@ -63,29 +94,34 @@ fn run_ffmpeg_cmd(args: &Vec<String>) {
             }
         },
         None => {
-            panic!("no black detect found at the start of the video");
+            panic!("no black detect found");
         }
     }
 
-    let last_blackdetect = blackdetect_list.last_mut();
+    if blackdetects.len() > 1 {
+        let last_blackdetect = blackdetects.last_mut();
 
-    match last_blackdetect {
-        Some(b) => match extract_filter_prefix(b) {
-            Ok((f, _)) => match get_filter_value(f, "black_start") {
-                Some(v) => {
-                    let frame = get_frame_per_timestamp(v);
-                    let timecode = get_timecode(frame - 1);
-                    println!("EOM (End of Material) Timecode: {}", timecode);
+        match last_blackdetect {
+            Some(b) => match extract_filter_prefix(b) {
+                Ok((f, _)) => match get_filter_value(f, "black_start") {
+                    Some(v) => {
+                        let frame = get_frame_per_timestamp(v);
+                        let timecode = get_timecode(frame - 1);
+                        println!("EOM (End of Material) Timecode: {}", timecode);
+                    }
+                    None => panic!("black_start value for the last black detection not found"),
+                },
+                Err(e) => {
+                    panic!("error parsing the last black detection filter: {}", e);
                 }
-                None => panic!("black_start value for the last black detection not found"),
             },
-            Err(e) => {
-                panic!("error parsing the last black detection filter: {}", e);
+            None => {
+                panic!("no black detect found");
             }
-        },
-        None => {
-            panic!("no black detect found at the end of the video");
         }
+    } else {
+        println!("EOM (End of Material) Timecode: {}", 10);
+        println!("Atenção: Material Terminou no último segundo de vídeo, ou seja, não foi detectado nenhum 'black' no fim do vídeo");
     }
 }
 
