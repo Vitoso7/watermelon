@@ -2,6 +2,8 @@ mod tests;
 
 #[macro_use]
 mod ffmpeg;
+mod mediainfo;
+mod mediainfo_cmd;
 
 use nom::{
     bytes::complete::{tag, take_until},
