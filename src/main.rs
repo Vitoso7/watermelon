@@ -1,13 +1,16 @@
 mod tests;
 
+#[macro_use]
+mod ffmpeg;
+
 use nom::{
     bytes::complete::{tag, take_until},
     sequence::delimited,
     IResult,
 };
+use std::env;
 use std::io::BufRead;
 use std::process::Stdio;
-use std::{env, process::Command};
 
 // Crate to calculate timecode
 use vtc::{rates, Timecode};
@@ -15,8 +18,6 @@ use vtc::{rates, Timecode};
 // The content needs to be the last black frame before the material ~ the last material frame;
 // the frame found by black_end is a content frame and also must be subtract by 1 because the SOM must start with a blackframe
 // the frame found by black_start to get EOM must be subtract by 1 because black_start is a black_frame and it does not belong to the end of material
-
-// Start of Material and End of Material
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -29,20 +30,19 @@ fn main() {
 fn run_ffmpeg_cmd(args: &Vec<String>) {
     let file_input_arg = &args[1];
 
-    let mut ffmpeg_cmd = Command::new("ffmpeg")
-        .args(["-hide_banner", "-i"])
-        .arg(file_input_arg)
-        .args([
-            "-an",
-            "-vf",
-            "blackdetect=d=1,blackframe",
-            "-f",
-            "null",
-            "-",
-        ])
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("error running ffmpeg command, maybe bad path for a video");
+    let mut ffmpeg_cmd = ffmpeg![
+        "-hide_banner",
+        "-i",
+        file_input_arg,
+        "-vf",
+        "blackdetect=d=1,blackframe",
+        "-f",
+        "null",
+        "-"
+    ]
+    .stderr(Stdio::piped())
+    .spawn()
+    .expect("error running ffmpeg command, maybe bad path for a video of ffmpeg not found");
 
     let stderr = ffmpeg_cmd
         .stderr
@@ -51,31 +51,39 @@ fn run_ffmpeg_cmd(args: &Vec<String>) {
     let stderr_reader = std::io::BufReader::new(stderr);
 
     let mut blackdetect_list: Vec<String> = vec![];
-    let mut raw_video_duration: Option<String> = None;
-    let mut found_duration = false;
+    let mut raw_duration_line: Option<String> = None;
     for line in stderr_reader.lines() {
         let buf_line = line.expect("Failed to read line from stdout");
-        if buf_line.contains("Duration") {
-            raw_video_duration = Some(buf_line);
-            found_duration = true;
-        } else if found_duration && buf_line.contains("black_start") {
+        if buf_line.contains("Duration: ") {
+            raw_duration_line = Some(buf_line);
+        } else if buf_line.contains("black_start") {
             blackdetect_list.push(buf_line);
         }
     }
 
-    match raw_video_duration {
-        Some(d) => {
-            get_som_eom(&mut blackdetect_list, d);
-        }
-        None => {
-            panic!("Video duration not found")
-        }
-    }
+    get_som_eom(&mut blackdetect_list, raw_duration_line);
 }
 
-fn get_som_eom(blackdetects: &mut Vec<String>, raw_video_duration: String) {
+fn get_som_eom(blackdetects: &mut Vec<String>, raw_duration_line: Option<String>) {
     println!("Number of blackdetects {}", blackdetects.len());
-    println!("Video duration {}", raw_video_duration);
+
+    let duration_str: Option<String>;
+    match raw_duration_line {
+        Some(v) => {
+            let value = get_value_from_string("Duration", v);
+            duration_str = value;
+        }
+        None => panic!("duration info not found on ffmpeg"),
+    };
+
+    let duration: f32;
+    match duration_str {
+        Some(v) => {
+            let value = parse_video_duration(v);
+            duration = value;
+        }
+        None => panic!("error parsing ffmpeg duration buffer line"),
+    }
 
     let first_blackdetect = blackdetects.first_mut();
 
@@ -120,7 +128,7 @@ fn get_som_eom(blackdetects: &mut Vec<String>, raw_video_duration: String) {
             }
         }
     } else {
-        println!("EOM (End of Material) Timecode: {}", 10);
+        println!("EOM (End of Material) Timecode: {}", duration);
         println!("Atenção: Material Terminou no último segundo de vídeo, ou seja, não foi detectado nenhum 'black' no fim do vídeo");
     }
 }
@@ -128,6 +136,20 @@ fn get_som_eom(blackdetects: &mut Vec<String>, raw_video_duration: String) {
 fn get_frame_per_timestamp(timestamp: f32) -> u64 {
     let frame = (timestamp * 29.97).round() as u64;
     return frame;
+}
+
+fn get_value_from_string(param: &str, input_string: String) -> Option<String> {
+    let pattern = format!("{}:", param);
+    if let Some(index) = input_string.find(&pattern) {
+        let value_start = index + pattern.len();
+        let value_string = input_string[value_start..].trim_start();
+        if let Some(value_end) = value_string.find(' ') {
+            return Some(value_string[..value_end].trim_end_matches(',').to_string());
+        } else {
+            return Some(value_string.trim_end_matches(',').to_string());
+        }
+    }
+    None
 }
 
 fn get_filter_value(raw_str: &str, value: &str) -> Option<f32> {
@@ -142,6 +164,18 @@ fn get_filter_value(raw_str: &str, value: &str) -> Option<f32> {
     }
 
     return None;
+}
+
+// TODO fn name
+fn parse_video_duration(time_str: String) -> f32 {
+    let time_parts: Vec<&str> = time_str.split(':').collect();
+    let hours: f32 = time_parts[0].parse().unwrap();
+    let minutes: f32 = time_parts[1].parse().unwrap();
+    let seconds_parts: Vec<&str> = time_parts[2].split('.').collect();
+    let seconds: f32 = seconds_parts[0].parse().unwrap();
+    let milliseconds: f32 = seconds_parts[1].parse().unwrap();
+    let total_seconds = hours * 3600.0 + minutes * 60.0 + seconds + milliseconds / 100.0;
+    return total_seconds;
 }
 
 fn extract_filter_prefix(input: &mut String) -> IResult<&str, ()> {

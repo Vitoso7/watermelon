@@ -1,6 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use crate::{extract_filter_prefix, get_filter_value, get_frame_per_timestamp, get_timecode};
+    use crate::{
+        extract_filter_prefix, get_filter_value, get_frame_per_timestamp, get_timecode,
+        parse_video_duration,
+    };
 
     #[test]
     fn get_framerate_vtc_lib_frame_209() {
@@ -107,5 +110,57 @@ mod tests {
     fn get_frame_per_timestamp_6_94027() {
         let value = get_frame_per_timestamp(6.94027);
         assert_eq!(value, 208);
+    }
+
+    #[test]
+    fn get_value_from_string_duration() {
+        let value = {
+            let param = "Duration";
+            let input_string = "Duration: 00:00:39.04, start: 0.000000, bitrate: 60024 kb/s";
+            let pattern = format!("{}:", param);
+            if let Some(index) = input_string.find(&pattern) {
+                let value_start = index + pattern.len();
+                let value_string = input_string[value_start..].trim_start();
+                if let Some(value_end) = value_string.find(' ') {
+                    return Some(value_string[..value_end].trim_end_matches(',').to_string());
+                } else {
+                    return Some(value_string.trim_end_matches(',').to_string());
+                }
+            }
+            None
+        };
+        assert_eq!(value, Some(String::from("00:00:39.04")));
+    }
+
+    #[test]
+    fn get_value_from_string_black_start() {
+        let value = {
+            let param = "black_start";
+            let input_string = "[blackdetect @ 0x12ce05c50] black_start:37.037 black_end:39.0056 black_duration:1.96863";
+            let pattern = format!("{}:", param);
+            if let Some(index) = input_string.find(&pattern) {
+                let value_start = index + pattern.len();
+                let value_string = input_string[value_start..].trim_start();
+                if let Some(value_end) = value_string.find(' ') {
+                    return Some(value_string[..value_end].trim_end_matches(',').to_string());
+                } else {
+                    return Some(value_string.trim_end_matches(',').to_string());
+                }
+            }
+            None
+        };
+        assert_eq!(value, Some(String::from("37.037")));
+    }
+
+    #[test]
+    fn parse_video_duration_00_00_39_04() {
+        let value = parse_video_duration(String::from("00:00:39.04"));
+        assert_eq!(value, 39.04)
+    }
+
+    #[test]
+    fn parse_video_duration_00_01_39_04() {
+        let value = parse_video_duration(String::from("00:01:39.04"));
+        assert_eq!(value, 99.04);
     }
 }
