@@ -32,10 +32,12 @@ fn run_ffmpeg_cmd(args: &Vec<String>) {
 
     let mut ffmpeg_cmd = ffmpeg![
         "-hide_banner",
+        "-loglevel",
+        "debug",
         "-i",
         file_input_arg,
         "-vf",
-        "blackdetect=d=1,blackframe",
+        "blackdetect=d=1",
         "-f",
         "null",
         "-"
@@ -66,24 +68,6 @@ fn run_ffmpeg_cmd(args: &Vec<String>) {
 
 fn get_som_eom(blackdetects: &mut Vec<String>, raw_duration_line: Option<String>) {
     println!("Number of blackdetects {}", blackdetects.len());
-
-    let duration_str: Option<String>;
-    match raw_duration_line {
-        Some(v) => {
-            let value = get_value_from_string("Duration", v);
-            duration_str = value;
-        }
-        None => panic!("duration info not found on ffmpeg"),
-    };
-
-    let duration: f32;
-    match duration_str {
-        Some(v) => {
-            let value = parse_video_duration(v);
-            duration = value;
-        }
-        None => panic!("error parsing ffmpeg duration buffer line"),
-    }
 
     let first_blackdetect = blackdetects.first_mut();
 
@@ -128,6 +112,24 @@ fn get_som_eom(blackdetects: &mut Vec<String>, raw_duration_line: Option<String>
             }
         }
     } else {
+        let duration_str: Option<String>;
+        match raw_duration_line {
+            Some(v) => {
+                let value = get_value_from_string("Duration", v);
+                duration_str = value;
+            }
+            None => panic!("duration info not found on ffmpeg"),
+        };
+
+        let duration: f32;
+        match duration_str {
+            Some(v) => {
+                let value = convert_video_ffmpeg_duration(v);
+                duration = value;
+            }
+            None => panic!("error parsing ffmpeg duration buffer line"),
+        }
+
         let frame = get_frame_per_timestamp(duration);
         let timecode = get_timecode(frame - 1);
         println!("EOM (End of Material) Timecode: {}", timecode);
@@ -168,8 +170,7 @@ fn get_filter_value(raw_str: &str, value: &str) -> Option<f32> {
     return None;
 }
 
-// TODO fn name
-fn parse_video_duration(time_str: String) -> f32 {
+fn convert_video_ffmpeg_duration(time_str: String) -> f32 {
     let time_parts: Vec<&str> = time_str.split(':').collect();
     let hours: f32 = time_parts[0].parse().unwrap();
     let minutes: f32 = time_parts[1].parse().unwrap();
