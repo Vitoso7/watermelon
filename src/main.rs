@@ -128,7 +128,9 @@ fn get_som_eom(blackdetects: &mut Vec<String>, raw_duration_line: Option<String>
             }
         }
     } else {
-        println!("EOM (End of Material) Timecode: {}", duration);
+        let frame = get_frame_per_timestamp(duration);
+        let timecode = get_timecode(frame - 1);
+        println!("EOM (End of Material) Timecode: {}", timecode);
         println!("Atenção: Material Terminou no último segundo de vídeo, ou seja, não foi detectado nenhum 'black' no fim do vídeo");
     }
 }
