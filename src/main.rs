@@ -22,7 +22,7 @@ use vtc::{rates, Timecode};
 fn main() {
     let args: Vec<String> = env::args().collect();
     args.get(1)
-        .unwrap_or_else(|| panic!("missing video path argument"));
+        .unwrap_or_else(|| panic!("error: missing video path argument"));
 
     run_ffmpeg_cmd(&args)
 }
@@ -44,18 +44,18 @@ fn run_ffmpeg_cmd(args: &Vec<String>) {
     ]
     .stderr(Stdio::piped())
     .spawn()
-    .expect("error running ffmpeg command, maybe bad path for a video of ffmpeg not found");
+    .expect("error: running ffmpeg command, maybe bad path for a video of ffmpeg not found");
 
     let stderr = ffmpeg_cmd
         .stderr
         .take()
-        .expect("error getting the stderr output");
+        .expect("error: getting the stderr output");
     let stderr_reader = std::io::BufReader::new(stderr);
 
     let mut blackdetect_list: Vec<String> = vec![];
     let mut raw_duration_line: Option<String> = None;
     for line in stderr_reader.lines() {
-        let buf_line = line.expect("Failed to read line from stdout");
+        let buf_line = line.expect("error: failed to read line from stdout");
         if buf_line.contains("Duration: ") {
             raw_duration_line = Some(buf_line);
         } else if buf_line.contains("black_start") {
@@ -79,14 +79,14 @@ fn get_som_eom(blackdetects: &mut Vec<String>, raw_duration_line: Option<String>
                     let timecode = get_timecode(frame - 1);
                     println!("SOM (Start Of Material) Timecode {}", timecode);
                 }
-                None => panic!("black_start value for the last black detection not found"),
+                None => panic!("error: black_start value for the last black detection not found"),
             },
             Err(e) => {
-                panic!("error parsing the first black detection filter {}", e);
+                panic!("error: parsing the first black detection filter {}", e);
             }
         },
         None => {
-            panic!("no black detect found");
+            panic!("error: no black detect found");
         }
     }
 
@@ -101,14 +101,14 @@ fn get_som_eom(blackdetects: &mut Vec<String>, raw_duration_line: Option<String>
                         let timecode = get_timecode(frame - 1);
                         println!("EOM (End of Material) Timecode: {}", timecode);
                     }
-                    None => panic!("black_start value for the last black detection not found"),
+                    None => panic!("black_start: value for the last black detection not found"),
                 },
                 Err(e) => {
-                    panic!("error parsing the last black detection filter: {}", e);
+                    panic!("error: parsing the last black detection filter: {}", e);
                 }
             },
             None => {
-                panic!("no black detect found");
+                panic!("error: no black detect found");
             }
         }
     } else {
@@ -127,7 +127,7 @@ fn get_som_eom(blackdetects: &mut Vec<String>, raw_duration_line: Option<String>
                 let value = convert_video_ffmpeg_duration(v);
                 duration = value;
             }
-            None => panic!("error parsing ffmpeg duration buffer line"),
+            None => panic!("error: parsing ffmpeg duration buffer line"),
         }
 
         let frame = get_frame_per_timestamp(duration);
