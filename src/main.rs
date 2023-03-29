@@ -2,8 +2,6 @@ mod tests;
 
 #[macro_use]
 mod ffmpeg;
-mod mediainfo;
-mod mediainfo_cmd;
 
 use nom::{
     bytes::complete::{tag, take_until},
@@ -39,7 +37,7 @@ fn run_ffmpeg_cmd(args: &Vec<String>) {
         "-i",
         file_input_arg,
         "-vf",
-        "blackdetect=d=1",
+        "blackdetect=d=1:pix_th=0.00",
         "-f",
         "null",
         "-"
